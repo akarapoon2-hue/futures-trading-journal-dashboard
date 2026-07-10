@@ -1,0 +1,6 @@
+{
+  "name": "Futures Trading Journal Dashboard",
+  "description": "A premium Black-and-Gold trading journal dashboard connected directly to Google Sheets, providing advanced KPI statistics and professional performance analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
