@@ -34,3 +34,11 @@ export interface DashboardState {
   kpis: KPIConfig[];
   charts: ChartConfig[];
 }
+
+export interface AccountConfig {
+  startingBalance: number;
+  profitTarget: number;
+  dailyLossLimit: number;
+  trailingDrawdown: number;
+  consistencyLimit: number;
+}

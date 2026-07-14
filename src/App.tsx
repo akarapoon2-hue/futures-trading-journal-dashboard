@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Layout,
@@ -15,14 +15,28 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { ParsedData, KPIConfig, ChartConfig } from './types';
-import { templates, Template } from './templates';
+import { ParsedData, KPIConfig, ChartConfig, type AccountConfig } from './types';
+import { templates, type Template } from './templates';
 import DataImporter from './components/DataImporter';
 import KPIStats from './components/KPIStats';
 import DashboardCharts from './components/DashboardCharts';
 import DataTable from './components/DataTable';
+import TradingHeatmap from './components/TradingHeatmap';
+import DailyLossTracker from './components/DailyLossTracker';
+import TrailingDrawdownTracker from './components/TrailingDrawdownTracker';
+import ConsistencyTracker from './components/ConsistencyTracker';
+import ProfitTargetTracker from './components/ProfitTargetTracker';
+import DashboardSettings from './components/DashboardSettings';
 
 const LOCAL_STORAGE_KEY = 'spreadsheet-dashboard-state-v1';
+
+const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
+  startingBalance: 100000,
+  profitTarget: 6000,
+  dailyLossLimit: 1000,
+  trailingDrawdown: 3000,
+  consistencyLimit: 40
+};
 
 export default function App() {
   const [data, setData] = useState<ParsedData | null>(null);
@@ -34,6 +48,9 @@ export default function App() {
   const [exportSuccess, setExportSuccess] = useState(false);
   const [importString, setImportString] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
+  
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
+  const [accountConfig, setAccountConfig] = useState<AccountConfig>(DEFAULT_ACCOUNT_CONFIG);
 
   // Load initial state from local storage or fallback to the default Futures template
   useEffect(() => {
@@ -41,13 +58,35 @@ export default function App() {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        
+        // ✅ เช็ค Version
+        if (parsed.version && parsed.version !== "2.0") {
+          console.warn(`Unsupported version: ${parsed.version}. Re-initializing with default template.`);
+          const defaultTemplate = templates[0];
+          setData(defaultTemplate.data);
+          setKPIs(defaultTemplate.defaultKPIs);
+          setCharts(defaultTemplate.defaultCharts);
+          setAccountConfig(DEFAULT_ACCOUNT_CONFIG);
+          setSelectedTemplateId(defaultTemplate.id);
+          return;
+        }
+        
         if (parsed.data && Array.isArray(parsed.kpis) && Array.isArray(parsed.charts)) {
           setData(parsed.data);
           setKPIs(parsed.kpis);
           setCharts(parsed.charts);
           
+          if (parsed.accountConfig) {
+            setAccountConfig({
+              ...DEFAULT_ACCOUNT_CONFIG,
+              ...parsed.accountConfig
+            });
+          }
+          
           // Match selected template if possible
-          const matched = templates.find(t => t.data.sourceName === parsed.data.sourceName);
+          const matched = templates.find(
+            (t: Template) => t.data.sourceName === parsed.data.sourceName
+          );
           if (matched) {
             setSelectedTemplateId(matched.id);
           } else {
@@ -65,109 +104,186 @@ export default function App() {
     setData(defaultTemplate.data);
     setKPIs(defaultTemplate.defaultKPIs);
     setCharts(defaultTemplate.defaultCharts);
+    setAccountConfig(DEFAULT_ACCOUNT_CONFIG);
     setSelectedTemplateId(defaultTemplate.id);
   }, []);
 
   // Sync state to local storage when updated
   useEffect(() => {
     if (data) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ data, kpis, charts }));
+      localStorage.setItem(
+        LOCAL_STORAGE_KEY,
+        JSON.stringify({
+          data,
+          kpis,
+          charts,
+          accountConfig
+        })
+      );
     }
-  }, [data, kpis, charts]);
+  }, [data, kpis, charts, accountConfig]);
 
   // Handle switching template presets
   const handleTemplateSwitch = (templateId: string) => {
     if (templateId === 'custom') return;
     
-    const target = templates.find(t => t.id === templateId);
+    const target = templates.find(
+      (t: Template) => t.id === templateId
+    );
     if (target) {
       setData(target.data);
       setKPIs(target.defaultKPIs);
       setCharts(target.defaultCharts);
+      setAccountConfig(target.accountConfig ?? DEFAULT_ACCOUNT_CONFIG);
       setSelectedTemplateId(templateId);
     }
   };
 
-  // Smart Auto-Generator for pasted custom datasets
-  const handleCustomDataLoaded = (newData: ParsedData) => {
+  // ✅ Smart Auto-Generator for pasted custom datasets (เวอร์ชันปรับปรุง)
+  const handleCustomDataLoaded = useCallback((newData: ParsedData) => {
     const numericalCols = newData.columns.filter(c => c.type === 'number');
     const categoricalCols = newData.columns.filter(c => c.type === 'string' || c.type === 'date');
 
-    const pnlCol = newData.columns.find(c => c.name.toLowerCase() === 'p&l' || c.name.toLowerCase() === 'pnl' || c.name.toLowerCase() === 'profit' || c.name.toLowerCase() === 'amount' || c.name.toLowerCase() === 'p&l accumulated');
-    const rCol = newData.columns.find(c => c.name.toLowerCase() === 'r-multiple' || c.name.toLowerCase() === 'r_multiple' || c.name.toLowerCase() === 'r multiple' || c.name.toLowerCase() === 'r' || c.name.toLowerCase() === 'r-value');
-    const dateCol = newData.columns.find(c => c.type === 'date' || c.name.toLowerCase() === 'date');
-    const symbolCol = newData.columns.find(c => c.name.toLowerCase() === 'symbol' || c.name.toLowerCase() === 'ticker' || c.name.toLowerCase() === 'instrument' || c.name.toLowerCase() === 'contract');
-    const setupCol = newData.columns.find(c => c.name.toLowerCase() === 'setup' || c.name.toLowerCase() === 'strategy' || c.name.toLowerCase() === 'pattern' || c.name.toLowerCase() === 'category');
-    const sessionCol = newData.columns.find(c => c.name.toLowerCase() === 'session' || c.name.toLowerCase() === 'time' || c.name.toLowerCase() === 'period');
+    // ค้นหาคอลัมน์ต่างๆ
+    const pnlCol = newData.columns.find(c => 
+      ['p&l', 'pnl', 'profit', 'loss', 'amount', 'net', 'p&l accumulated'].some(k => 
+        c.name.toLowerCase().includes(k)
+      )
+    );
+    
+    const rCol = newData.columns.find(c => 
+      ['r-multiple', 'r_multiple', 'r multiple', 'r', 'r-value'].some(k => 
+        c.name.toLowerCase().includes(k)
+      )
+    );
+    
+    const dateCol = newData.columns.find(c => 
+      c.type === 'date' || ['date', 'day', 'tradedate', 'entrydate'].some(k => 
+        c.name.toLowerCase().includes(k)
+      )
+    );
+    
+    const symbolCol = newData.columns.find(c => 
+      ['symbol', 'ticker', 'instrument', 'contract'].some(k => 
+        c.name.toLowerCase().includes(k)
+      )
+    );
+    
+    const setupCol = newData.columns.find(c => 
+      ['setup', 'strategy', 'pattern', 'category'].some(k => 
+        c.name.toLowerCase().includes(k)
+      )
+    );
+    
+    // ✅ เพิ่ม Session Column
+    const sessionCol = newData.columns.find(c =>
+      ['session', 'period', 'market session', 'time'].some(k =>
+        c.name.toLowerCase().includes(k)
+      )
+    );
 
+    // ✅ ตรวจสอบว่าเป็น Trading Data หรือไม่
     if (pnlCol) {
       // It's a trading journal dataset! Let's load the full set of Prop Firm KPIs and Charts adjusted to this dataset!
-      const futuresTemplate = templates.find(t => t.id === 'futures') || templates[0];
+      const futuresTemplate =
+        templates.find((t: Template) => t.id === 'futures') ||
+        templates[0];
       
-      const mappedKPIs = futuresTemplate.defaultKPIs.map(kpi => {
-        let col = kpi.column;
-        if (kpi.column === 'P&L' && pnlCol) col = pnlCol.name;
-        if (kpi.column === 'R-Multiple' && rCol) col = rCol.name;
-        return {
-          ...kpi,
-          id: `kpi-mapped-${kpi.id}-${Date.now()}`,
-          column: col
-        };
-      });
+      const mappedKPIs = futuresTemplate.defaultKPIs.map(
+        (kpi: KPIConfig) => {
+          let col = kpi.column;
 
-      const mappedCharts = futuresTemplate.defaultCharts.map(chart => {
-        let xAxisKey = chart.xAxisKey;
-        let yAxisKey = chart.yAxisKey;
+          if (kpi.column === 'P&L' && pnlCol) {
+            col = pnlCol.name;
+          }
 
-        if (chart.xAxisKey === 'Date' && dateCol) xAxisKey = dateCol.name;
-        if (chart.xAxisKey === 'Setup' && setupCol) xAxisKey = setupCol.name;
-        if (chart.xAxisKey === 'Session' && sessionCol) xAxisKey = sessionCol.name;
-        if (chart.xAxisKey === 'P&L' && pnlCol) xAxisKey = pnlCol.name;
+          if (kpi.column === 'R-Multiple' && rCol) {
+            col = rCol.name;
+          }
 
-        if (chart.yAxisKey === 'P&L' && pnlCol) yAxisKey = pnlCol.name;
+          return {
+            ...kpi,
+            id: `kpi-mapped-${kpi.id}-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 6)}`,
+            column: col
+          };
+        }
+      );
 
-        return {
-          ...chart,
-          id: `chart-mapped-${chart.id}-${Date.now()}`,
-          xAxisKey,
-          yAxisKey
-        };
-      });
+      const mappedCharts = futuresTemplate.defaultCharts.map(
+        (chart: ChartConfig) => {
+          let xAxisKey = chart.xAxisKey;
+          let yAxisKey = chart.yAxisKey;
+
+          if (chart.xAxisKey === 'Date' && dateCol) {
+            xAxisKey = dateCol.name;
+          }
+
+          if (chart.xAxisKey === 'Setup' && setupCol) {
+            xAxisKey = setupCol.name;
+          }
+
+          if (chart.xAxisKey === 'Session' && sessionCol) {
+            xAxisKey = sessionCol.name;
+          }
+
+          if (chart.xAxisKey === 'P&L' && pnlCol) {
+            xAxisKey = pnlCol.name;
+          }
+
+          if (chart.yAxisKey === 'P&L' && pnlCol) {
+            yAxisKey = pnlCol.name;
+          }
+
+          return {
+            ...chart,
+            id: `chart-mapped-${chart.id}-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 6)}`,
+            xAxisKey,
+            yAxisKey
+          };
+        }
+      );
 
       setData(newData);
       setKPIs(mappedKPIs);
       setCharts(mappedCharts);
-      setSelectedTemplateId('futures'); // Sync with Futures preset layout
+      setSelectedTemplateId('futures');
       return;
     }
     
+    // === NON-TRADING DATA (SaaS, General) ===
     const autoKPIs: KPIConfig[] = [];
     const autoCharts: ChartConfig[] = [];
     
     // 1. Generate standard sum/average cards for numeric attributes (Max 4)
     if (numericalCols.length > 0) {
-      numericalCols.slice(0, 4).forEach((col, index) => {
-        const nameLower = col.name.toLowerCase();
-        const isRate = nameLower.includes('rate') || nameLower.includes('%') || nameLower.includes('churn') || nameLower.includes('ratio');
-        const colors = ['emerald', 'indigo', 'rose', 'amber'];
-        
-        // Pick smart formatting
-        let format: KPIConfig['format'] = 'number';
-        if (nameLower.includes('$') || nameLower.includes('revenue') || nameLower.includes('sales') || nameLower.includes('amount') || nameLower.includes('price')) {
-          format = 'currency';
-        } else if (isRate) {
-          format = 'percent';
-        }
+      numericalCols.slice(0, 4).forEach(
+        (
+          col: ParsedData['columns'][number],
+          index: number
+        ) => {
+          const nameLower = col.name.toLowerCase();
+          const isRate = ['rate', '%', 'churn', 'ratio'].some(k => nameLower.includes(k));
+          const isCurrency = ['$', 'revenue', 'sales', 'amount', 'price'].some(k => nameLower.includes(k));
+          const colors = ['emerald', 'indigo', 'rose', 'amber'];
+          
+          let format: KPIConfig['format'] = 'number';
+          if (isCurrency) format = 'currency';
+          else if (isRate) format = 'percent';
 
-        autoKPIs.push({
-          id: `kpi-auto-${col.name}-${index}-${Date.now()}`,
-          title: isRate ? `Average ${col.name}` : `Total ${col.name}`,
-          column: col.name,
-          type: isRate ? 'avg' : 'sum',
-          format,
-          color: colors[index % colors.length],
-        });
-      });
+          autoKPIs.push({
+            id: `kpi-auto-${col.name}-${index}-${Date.now()}`,
+            title: isRate ? `Average ${col.name}` : `Total ${col.name}`,
+            column: col.name,
+            type: isRate ? 'avg' : 'sum',
+            format,
+            color: colors[index % colors.length],
+          });
+        }
+      );
     } else {
       // Row Counter if no numeric field is parsed
       autoKPIs.push({
@@ -183,42 +299,62 @@ export default function App() {
     // 2. Generate standard charts grouping first categorical by numeric metric (Max 3)
     if (categoricalCols.length > 0 && numericalCols.length > 0) {
       const xCol = categoricalCols[0];
+      const chartTypes: Array<ChartConfig['type']> = ['bar', 'line', 'area'];
+      const colors = ['#6366f1', '#10b981', '#3b82f6'];
       
-      numericalCols.slice(0, 3).forEach((yCol, index) => {
-        const chartTypes: Array<ChartConfig['type']> = ['bar', 'area', 'line'];
-        const colors = ['#6366f1', '#10b981', '#3b82f6'];
-        
-        autoCharts.push({
-          id: `chart-auto-${index}-${Date.now()}`,
-          title: `${yCol.name} Performance by ${xCol.name}`,
-          type: chartTypes[index % chartTypes.length],
-          xAxisKey: xCol.name,
-          yAxisKey: yCol.name,
-          color: colors[index % colors.length],
-        });
-      });
+      numericalCols.slice(0, 3).forEach(
+        (
+          yCol: ParsedData['columns'][number],
+          index: number
+        ) => {
+          autoCharts.push({
+            id: `chart-auto-${index}-${Date.now()}`,
+            title: `${yCol.name} by ${xCol.name}`,
+            type: chartTypes[index % chartTypes.length],
+            xAxisKey: xCol.name,
+            yAxisKey: yCol.name,
+            color: colors[index % colors.length],
+          });
+        }
+      );
     }
 
     setData(newData);
     setKPIs(autoKPIs);
     setCharts(autoCharts);
     setSelectedTemplateId('custom');
-  };
+  }, []);
 
+  // ✅ แก้ไขฟังก์ชันนี้
   const handleResetToCurrentTemplate = () => {
     if (selectedTemplateId === 'custom') return;
-    const target = templates.find(t => t.id === selectedTemplateId);
-    if (target) {
-      setData(target.data);
-      setKPIs(target.defaultKPIs);
-      setCharts(target.defaultCharts);
-    }
+
+    const target = templates.find(
+      (t: Template) => t.id === selectedTemplateId
+    );
+
+    if (!target) return;
+
+    setData(target.data);
+    setKPIs(target.defaultKPIs);
+    setCharts(target.defaultCharts);
+
+    setAccountConfig(
+      target.accountConfig ?? DEFAULT_ACCOUNT_CONFIG
+    );
   };
 
   // Export Dashboard as a JSON backup file
   const handleExportDashboard = () => {
     try {
-      const stateObj = { data, kpis, charts };
+      const stateObj = {
+        version: "2.0",
+        createdAt: new Date().toISOString(),
+        data,
+        kpis,
+        charts,
+        accountConfig
+      };
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stateObj, null, 2));
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute("href", dataStr);
@@ -237,7 +373,14 @@ export default function App() {
   // Copy active dashboard configuration code to clipboard
   const handleCopyConfigCode = () => {
     try {
-      const stateObj = { data, kpis, charts };
+      const stateObj = {
+        version: "2.0",
+        createdAt: new Date().toISOString(),
+        data,
+        kpis,
+        charts,
+        accountConfig
+      };
       navigator.clipboard.writeText(JSON.stringify(stateObj));
       setExportSuccess(true);
       setTimeout(() => setExportSuccess(false), 2500);
@@ -253,10 +396,22 @@ export default function App() {
       if (!importString.trim()) return;
       const parsed = JSON.parse(importString.trim());
       
+      // ✅ เช็ค Version
+      if (parsed.version && parsed.version !== "2.0") {
+        setImportError(`Unsupported version: ${parsed.version}. Expected version 2.0.`);
+        return;
+      }
+      
       if (parsed.data && Array.isArray(parsed.kpis) && Array.isArray(parsed.charts)) {
         setData(parsed.data);
         setKPIs(parsed.kpis);
         setCharts(parsed.charts);
+        if (parsed.accountConfig) {
+          setAccountConfig({
+            ...DEFAULT_ACCOUNT_CONFIG,
+            ...parsed.accountConfig
+          });
+        }
         setSelectedTemplateId('custom');
         setImportString('');
         setImportError(null);
@@ -290,6 +445,7 @@ export default function App() {
               <h1 className="text-4xl md:text-7xl font-black leading-[0.85] tracking-[-0.05em] uppercase">
                 FUTURES<span className="text-transparent" style={{ WebkitTextStroke: '1.5px #E5C158' }}>PROP</span>
               </h1>
+              
               {data && (
                 <p className="text-[11px] font-mono opacity-50 uppercase tracking-widest mt-2 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-[#E5C158] animate-ping"></span>
@@ -301,8 +457,17 @@ export default function App() {
             {/* Top Toolbar Actions */}
             <div className="flex items-center gap-3">
               <button
+                type="button"
+                onClick={() => setShowAccountSettings(true)}
+                className="flex items-center gap-1.5 border-t border-white/10 bg-transparent px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#F5F5F5] transition-all hover:border-[#E5C158] hover:bg-white/5 hover:text-[#E5C158]"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                <span>Account Settings</span>
+              </button>
+
+              <button
                 onClick={() => setShowConfigPanel(true)}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border border-white/20 hover:border-[#E5C158] transition-all"
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border-t border-white/10 hover:border-[#E5C158] transition-all"
                 id="btn-open-config"
                 title="Backup and Restore settings"
               >
@@ -313,7 +478,7 @@ export default function App() {
               {selectedTemplateId !== 'custom' && (
                 <button
                   onClick={handleResetToCurrentTemplate}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border border-white/20 hover:border-[#E5C158] transition-all"
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border-t border-white/10 hover:border-[#E5C158] transition-all"
                   id="btn-reset-template"
                   title="Reset metric adjustments"
                 >
@@ -343,7 +508,7 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {templates.map((tmpl) => {
+              {templates.map((tmpl: Template) => {
                 const isActive = selectedTemplateId === tmpl.id;
                 return (
                   <button
@@ -385,7 +550,32 @@ export default function App() {
                 transition={{ duration: 0.25 }}
                 className="space-y-8"
               >
-                {/* 1. KPIs Section */}
+                {/* ✅ 1. Risk Management Section - รวม Daily Loss + Trailing Drawdown + Consistency + Profit Target */}
+                <section id="risk-section" className="space-y-6">
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    <DailyLossTracker
+                      data={data}
+                      dailyLossLimit={accountConfig.dailyLossLimit}
+                    />
+                    <TrailingDrawdownTracker
+                      data={data}
+                      startingBalance={accountConfig.startingBalance}
+                      drawdownAmount={accountConfig.trailingDrawdown}
+                    />
+                  </div>
+
+                  <ConsistencyTracker
+                    data={data}
+                    consistencyLimit={accountConfig.consistencyLimit}
+                  />
+
+                  <ProfitTargetTracker
+                    data={data}
+                    profitTarget={accountConfig.profitTarget}
+                  />
+                </section>
+
+                {/* 2. KPIs Section */}
                 <section id="kpis-section">
                   <KPIStats
                     data={data}
@@ -394,8 +584,8 @@ export default function App() {
                   />
                 </section>
 
-                {/* 2. Charts Visualization Section */}
-                <section id="charts-section">
+                {/* 3. Charts Visualization Section */}
+                <section id="charts-section" className="space-y-8">
                   <DashboardCharts
                     data={data}
                     charts={charts}
@@ -403,7 +593,12 @@ export default function App() {
                   />
                 </section>
 
-                {/* 3. Data Grid Explorer Section */}
+                {/* 4. Heatmap Section */}
+                <section id="heatmap-section" className="space-y-8">
+                  <TradingHeatmap data={data} />
+                </section>
+
+                {/* 5. Data Grid Explorer Section */}
                 <section id="table-section">
                   <DataTable data={data} />
                 </section>
@@ -422,7 +617,7 @@ export default function App() {
       </div>
 
       {/* Footer Branding */}
-      <footer className="text-center py-8 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-500 max-w-7xl mx-auto w-full px-4 border-t border-white/10 mt-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <footer className="text-center py-8 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-500 max-w-7xl mx-auto w-full px-4 border-t border-t-white/10 mt-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <p>FUTURES PROP • REAL-TIME DATA COMPILER</p>
         <p className="font-mono text-[#E5C158]">OPERATING IN CLIENT-SIDE CONTAINER</p>
       </footer>
@@ -503,6 +698,14 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Account Settings Modal */}
+      <DashboardSettings
+        open={showAccountSettings}
+        config={accountConfig}
+        onClose={() => setShowAccountSettings(false)}
+        onSave={setAccountConfig}
+      />
     </div>
   );
 }

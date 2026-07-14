@@ -1,4 +1,4 @@
-import { ParsedData, KPIConfig, ChartConfig } from './types';
+import { ParsedData, KPIConfig, ChartConfig, type AccountConfig } from './types';
 
 export interface Template {
   id: string;
@@ -7,6 +7,7 @@ export interface Template {
   data: ParsedData;
   defaultKPIs: KPIConfig[];
   defaultCharts: ChartConfig[];
+  accountConfig: AccountConfig; // ✅ เพิ่ม
 }
 
 export const templates: Template[] = [
@@ -103,7 +104,7 @@ export const templates: Template[] = [
       },
       {
         id: 'kpi-futures-8',
-        title: 'Daily Loss (Latest Trade Day)',
+        title: 'Latest Trading Day P&L',
         column: 'P&L',
         type: 'daily_loss',
         format: 'currency',
@@ -168,6 +169,13 @@ export const templates: Template[] = [
         color: '#3b82f6',
       },
     ],
+    accountConfig: {
+      startingBalance: 100000,
+      profitTarget: 6000,
+      dailyLossLimit: 1000,
+      trailingDrawdown: 3000,
+      consistencyLimit: 40
+    }
   },
   {
     id: 'sales',
@@ -258,6 +266,13 @@ export const templates: Template[] = [
         color: '#3b82f6', // blue
       },
     ],
+    accountConfig: {
+      startingBalance: 0,
+      profitTarget: 0,
+      dailyLossLimit: 0,
+      trailingDrawdown: 0,
+      consistencyLimit: 40
+    }
   },
   {
     id: 'budget',
@@ -348,6 +363,13 @@ export const templates: Template[] = [
         color: '#eab308', // amber
       },
     ],
+    accountConfig: {
+      startingBalance: 0,
+      profitTarget: 0,
+      dailyLossLimit: 0,
+      trailingDrawdown: 0,
+      consistencyLimit: 40
+    }
   },
   {
     id: 'saas',
@@ -431,5 +453,12 @@ export const templates: Template[] = [
         color: '#0ea5e9', // sky
       },
     ],
-  },
+    accountConfig: {
+      startingBalance: 0,
+      profitTarget: 0,
+      dailyLossLimit: 0,
+      trailingDrawdown: 0,
+      consistencyLimit: 40
+    }
+  }
 ];

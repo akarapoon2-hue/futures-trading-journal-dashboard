@@ -90,18 +90,20 @@ export default function KPIStats({ data, kpis, onKPIsChange }: KPIStatsProps) {
       }
       case 'daily_loss': {
         if (data.rows.length === 0) return 0;
+
         const dates = data.rows
           .map(row => String(row.Date))
-          .filter(d => d && d !== 'undefined');
-        if (dates.length === 0) return 0;
-        const sortedDates = [...dates].sort((a, b) => Date.parse(b) - Date.parse(a));
-        const latestDate = sortedDates[0];
-        const dailyRows = data.rows.filter(row => String(row.Date) === latestDate);
-        const dailyPnl = dailyRows
+          .filter(Boolean);
+
+        const latestDate = [...dates].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+
+        const dailyPnl = data.rows
+          .filter(row => String(row.Date) === latestDate)
           .map(row => Number(row[colName]))
-          .filter(val => !isNaN(val))
-          .reduce((sum, curr) => sum + curr, 0);
-        return dailyPnl;
+          .filter(v => !isNaN(v))
+          .reduce((sum, v) => sum + v, 0);
+
+        return Math.max(0, -dailyPnl);
       }
       default:
         return 0;
@@ -231,6 +233,15 @@ export default function KPIStats({ data, kpis, onKPIsChange }: KPIStatsProps) {
             const cardStyle = getCardStyle(kpi.color);
             const markerStyle = getMarkerStyle(kpi.color);
             const textColorStyle = getTextColorStyle(kpi.color);
+            const formattedValue = formatValue(val, kpi.format);
+
+            // ✅ กำหนดสีแบบไดนามิกสำหรับ daily_loss
+            const isLatestDayPnL = kpi.type === 'daily_loss';
+            const dynamicValueColor = isLatestDayPnL
+              ? val === 0
+                ? 'text-emerald-400'
+                : 'text-rose-400'
+              : textColorStyle;
 
             return (
               <div
@@ -256,8 +267,8 @@ export default function KPIStats({ data, kpis, onKPIsChange }: KPIStatsProps) {
                 </div>
 
                 <div className="mt-6">
-                  <p className="text-3xl font-black tracking-tighter text-[#F5F5F5] font-mono">
-                    {formatValue(val, kpi.format)}
+                  <p className={`text-3xl font-black tracking-tighter font-mono ${dynamicValueColor}`}>
+                    {formattedValue}
                   </p>
                   <p className="text-[9px] mt-1.5 uppercase font-mono tracking-widest text-slate-500 flex items-center gap-1.5">
                     <span className={`w-1.5 h-1.5 rounded-full ${markerStyle}`}></span>

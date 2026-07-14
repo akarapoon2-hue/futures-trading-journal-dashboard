@@ -6,6 +6,12 @@
   --font-mono: "Fira Code", ui-monospace, SFMono-Regular, monospace;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   background-color: #0A0A0A;
@@ -14,8 +20,8 @@ body {
 }
 
 ::selection {
-  background-color: #FF3E00;
-  color: #FFFFFF;
+  background-color: #E5C158;
+  color: #000000;
 }
 
 /* Custom scrollbar for brutalist clean aesthetic */
@@ -31,5 +37,5 @@ body {
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #FF3E00;
+  background: #E5C158;
 }
