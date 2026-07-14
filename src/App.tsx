@@ -581,6 +581,7 @@ export default function App() {
                     data={data}
                     kpis={kpis}
                     onKPIsChange={setKPIs}
+                    startingBalance={accountConfig.startingBalance}
                   />
                 </section>
 
