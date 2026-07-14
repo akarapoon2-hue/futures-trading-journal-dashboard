@@ -6,6 +6,7 @@ interface KPIStatsProps {
   data: ParsedData;
   kpis: KPIConfig[];
   onKPIsChange: (kpis: KPIConfig[]) => void;
+  startingBalance?: number; // ✅ เพิ่ม Props นี้
 }
 
 const COLORS = [
@@ -17,7 +18,12 @@ const COLORS = [
   { name: 'slate', label: 'Classic', bg: 'bg-[#121212] border-white/10 text-[#F5F5F5]', text: 'text-slate-400', marker: 'bg-slate-400' },
 ];
 
-export default function KPIStats({ data, kpis, onKPIsChange }: KPIStatsProps) {
+export default function KPIStats({ 
+  data, 
+  kpis, 
+  onKPIsChange,
+  startingBalance = 100000 // ✅ กำหนดค่าเริ่มต้น
+}: KPIStatsProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newColumn, setNewColumn] = useState('');
@@ -60,8 +66,8 @@ export default function KPIStats({ data, kpis, onKPIsChange }: KPIStatsProps) {
         return gains / losses;
       }
       case 'max_drawdown': {
-        let running = 100000;
-        let peak = 100000;
+        let running = startingBalance; // ✅ ใช้ startingBalance
+        let peak = startingBalance; // ✅ ใช้ startingBalance
         let maxDD = 0;
         const sortedRows = [...data.rows].sort((a, b) => {
           const aDate = Date.parse(a.Date);
@@ -86,7 +92,7 @@ export default function KPIStats({ data, kpis, onKPIsChange }: KPIStatsProps) {
       }
       case 'current_balance': {
         const netPnl = values.reduce((sum, curr) => sum + curr, 0);
-        return 100000 + netPnl;
+        return startingBalance + netPnl; // ✅ ใช้ startingBalance แทน 100000
       }
       case 'daily_loss': {
         if (data.rows.length === 0) return 0;
