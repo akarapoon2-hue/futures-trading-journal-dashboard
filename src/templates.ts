@@ -114,7 +114,7 @@ export const templates: Template[] = [
     defaultCharts: [
       {
         id: 'chart-futures-1',
-        title: 'Prop Firm Equity Curve ($100k Account)',
+        title: 'Prop Firm Equity Curve',  // ✅ แก้ไขแล้ว
         type: 'area',
         xAxisKey: 'Date',
         yAxisKey: 'P&L',

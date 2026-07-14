@@ -587,10 +587,12 @@ export default function App() {
 
                 {/* 3. Charts Visualization Section */}
                 <section id="charts-section" className="space-y-8">
+                  {/* ✅ เพิ่ม startingBalance prop */}
                   <DashboardCharts
                     data={data}
                     charts={charts}
                     onChartsChange={setCharts}
+                    startingBalance={accountConfig.startingBalance}
                   />
                 </section>
 

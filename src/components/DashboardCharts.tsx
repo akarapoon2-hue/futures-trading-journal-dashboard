@@ -34,6 +34,7 @@ interface DashboardChartsProps {
   data: ParsedData;
   charts: ChartConfig[];
   onChartsChange: (charts: ChartConfig[]) => void;
+  startingBalance?: number;
 }
 
 // Utility functions
@@ -72,7 +73,12 @@ const parsePnL = (value: unknown): number => {
   return parseFloat(cleaned) || 0;
 };
 
-export default function DashboardCharts({ data, charts, onChartsChange }: DashboardChartsProps) {
+export default function DashboardCharts({ 
+  data, 
+  charts, 
+  onChartsChange,
+  startingBalance = 100000
+}: DashboardChartsProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newChart, setNewChart] = useState({
     title: '',
@@ -143,7 +149,7 @@ export default function DashboardCharts({ data, charts, onChartsChange }: Dashbo
       return !isNaN(aDate) && !isNaN(bDate) ? aDate - bDate : a.localeCompare(b, undefined, { numeric: true });
     });
 
-    let runningSum = 100000;
+    let runningSum = startingBalance;
     const equityData = sortedDates.map(date => ({
       name: date,
       value: Number((runningSum += dailyGrouped[date]).toFixed(2))
@@ -151,7 +157,7 @@ export default function DashboardCharts({ data, charts, onChartsChange }: Dashbo
     
     return {
       ...chart,
-      chartData: equityData.length > 0 ? equityData : [{ name: 'Start', value: 100000 }]
+      chartData: equityData.length > 0 ? equityData : [{ name: 'Start', value: startingBalance }]
     };
   };
 
@@ -231,7 +237,7 @@ export default function DashboardCharts({ data, charts, onChartsChange }: Dashbo
       // Default aggregation
       return generateDefaultChartData(chart, data, xAxisKey, yAxisKey);
     });
-  }, [data, charts]);
+  }, [data, charts, startingBalance]);
 
   // Handlers
   const handleAddChart = useCallback((e: React.FormEvent) => {
