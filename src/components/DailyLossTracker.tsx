@@ -241,40 +241,35 @@ export default function DailyLossTracker({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="border border-white/10 bg-[#0A0A0A] p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-            Daily loss limit
+      {/* ✅ แก้ไขโครงสร้างการ์ด */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="flex min-h-[104px] flex-col border border-white/10 bg-[#0A0A0A] p-4">
+          <p className="min-h-[32px] text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+            Daily Loss Limit
           </p>
 
-          <p className="mt-2 text-2xl font-black font-mono tabular-nums text-[#F5F5F5]">
-            -{formatCurrency(dailyLossLimit)}
-          </p>
-        </div>
-
-        <div className="border border-white/10 bg-[#0A0A0A] p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-            Daily loss
-          </p>
-
-          <p
-            className={`mt-2 text-2xl font-black font-mono tabular-nums ${
-              result.dailyLoss > 0
-                ? 'text-rose-400'
-                : 'text-emerald-400'
-            }`}
-          >
-            {dailyLossText}
+          <p className="mt-auto text-3xl font-black leading-none text-white">
+            -${dailyLossLimit.toLocaleString()}
           </p>
         </div>
 
-        <div className="border border-white/10 bg-[#0A0A0A] p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-            Remaining loss room
+        <div className="flex min-h-[104px] flex-col border border-white/10 bg-[#0A0A0A] p-4">
+          <p className="min-h-[32px] text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+            Daily Loss
           </p>
 
-          <p className="mt-2 text-2xl font-black font-mono tabular-nums text-[#E5C158]">
-            {formatCurrency(remaining)}
+          <p className="mt-auto text-3xl font-black leading-none text-rose-400">
+            -${Math.abs(result.dailyLoss).toLocaleString()}
+          </p>
+        </div>
+
+        <div className="flex min-h-[104px] flex-col border border-white/10 bg-[#0A0A0A] p-4">
+          <p className="min-h-[32px] text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+            Remaining Loss Room
+          </p>
+
+          <p className="mt-auto text-3xl font-black leading-none text-[#E5C158]">
+            ${remaining.toLocaleString()}
           </p>
         </div>
       </div>

@@ -1,168 +1,309 @@
-import React, { useMemo } from 'react';
-import { ParsedData } from '../types';
+import React, { useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import type { Trade } from '../types/trading';
 
 interface TradingHeatmapProps {
-  data: ParsedData;
-  onDataLoaded?: (newData: ParsedData) => void;
-  currentSourceName?: string;
+  trades: Trade[];
+  onDayClick?: (date: string) => void;
 }
 
-const normalizeDate = (value: unknown): string => {
+const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const normalizeDate = (value: string): string => {
   if (!value) return '';
-  const text = String(value).trim();
-
-  // 1. YYYY-MM-DD or YYYY/MM/DD
-  const ymdMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (ymdMatch) {
-    return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
-  }
-
-  // 2. DD/MM/YYYY or DD-MM-YYYY
-  const dmyMatch = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-  if (dmyMatch) {
-    return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
-  }
-
-  const parsedDate = new Date(`${text}T12:00:00`);
-  if (Number.isNaN(parsedDate.getTime())) return '';
-  return parsedDate.toISOString().split('T')[0];
+  const clean = value.includes('T') ? value.split('T')[0] : value.split(' ')[0];
+  return clean;
 };
 
-const parseNumber = (value: unknown): number => {
-  const original = String(value ?? '').trim();
-  const isNegative = original.startsWith('(') && original.endsWith(')');
-  const cleaned = original.replace(/[$,%\s,()]/g, '');
-  const number = Number(cleaned);
-  return Number.isFinite(number) ? (isNegative ? -number : number) : 0;
+const formatCurrency = (value: number): string => {
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}$${value.toFixed(2)}`;
 };
 
-export default function TradingHeatmap({ 
-  data, 
-  onDataLoaded,  // รับไว้แต่ไม่ต้องใช้
-  currentSourceName 
-}: TradingHeatmapProps) {
-  const dailySums = useMemo(() => {
-    const sums: Record<string, number> = {};
-    if (!data?.rows?.length) return sums;
+export default function TradingHeatmap({ trades, onDayClick }: TradingHeatmapProps) {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
 
-    const dateCol = data.columns.find(c => /date|day|timestamp|วันที่/i.test(c.name))?.name;
-    const pnlCol = data.columns.find(c => /pnl|p&l|profit|กำไร|ขาดทุน/i.test(c.name))?.name;
+  // ✅ สร้างข้อมูลรายวันจาก trades
+  const dailyData = useMemo(() => {
+    const result: Record<string, { pnl: number; count: number; result: string }> = {};
+    
+    if (!trades || trades.length === 0) return result;
 
-    if (!dateCol || !pnlCol) return sums;
-
-    data.rows.forEach(row => {
-      const dateKey = normalizeDate(row[dateCol]);
-      if (!dateKey) return;
-      sums[dateKey] = (sums[dateKey] ?? 0) + parseNumber(row[pnlCol]);
+    trades.forEach(trade => {
+      const date = normalizeDate(trade.trade_date || '');
+      if (!date) return;
+      
+      const pnl = trade.net_pnl || 0;
+      const resultType = trade.result?.toLowerCase() || 'none';
+      
+      if (!result[date]) {
+        result[date] = { pnl: 0, count: 0, result: 'none' };
+      }
+      
+      result[date].pnl += pnl;
+      result[date].count++;
+      
+      // เก็บ result แบบมี priority: loss > win > breakeven
+      if (resultType === 'loss') {
+        result[date].result = 'loss';
+      } else if (resultType === 'win' && result[date].result !== 'loss') {
+        result[date].result = 'win';
+      } else if ((resultType === 'break even' || resultType === 'miss entry') && result[date].result === 'none') {
+        result[date].result = 'breakeven';
+      }
     });
-    return sums;
-  }, [data]);
+    
+    return result;
+  }, [trades]);
 
-  const calendar = useMemo(() => {
-    const dates = Object.keys(dailySums).sort();
-    const ref = dates.length > 0 ? new Date(`${dates[dates.length - 1]}T12:00:00`) : new Date();
-    const year = ref.getFullYear();
-    const month = ref.getMonth();
-
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // ✅ สร้างปฏิทินรายเดือน
+  const calendarDays = useMemo(() => {
     const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days: { day: number; date: string; hasTrade: boolean; pnl: number; count: number; result: string }[] = [];
+    
+    // Empty cells for first week
+    for (let i = 0; i < firstDay; i++) {
+      days.push({ day: 0, date: '', hasTrade: false, pnl: 0, count: 0, result: 'none' });
+    }
+    
+    // Actual days
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const data = dailyData[date] || { pnl: 0, count: 0, result: 'none' };
+      
+      days.push({
+        day,
+        date,
+        hasTrade: data.count > 0,
+        pnl: data.pnl,
+        count: data.count,
+        result: data.result,
+      });
+    }
+    
+    return days;
+  }, [year, month, dailyData]);
 
-    return {
-      year,
-      month,
-      monthLabel: ref.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-      cells: [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
-    };
-  }, [dailySums]);
+  // ✅ สรุปสัปดาห์
+  const weekSummaries = useMemo(() => {
+    const weeks: { weekNumber: number; pnl: number; count: number; days: typeof calendarDays }[] = [];
+    let currentWeek: typeof calendarDays = [];
+    
+    calendarDays.forEach((day, index) => {
+      currentWeek.push(day);
+      
+      if (currentWeek.length === 7 || index === calendarDays.length - 1) {
+        const weekNumber = Math.floor(index / 7) + 1;
+        const pnl = currentWeek.reduce((sum, d) => sum + d.pnl, 0);
+        const count = currentWeek.reduce((sum, d) => sum + d.count, 0);
+        
+        weeks.push({
+          weekNumber,
+          pnl,
+          count,
+          days: [...currentWeek],
+        });
+        
+        currentWeek = [];
+      }
+    });
+    
+    return weeks;
+  }, [calendarDays]);
 
-  const formatCurrency = (val: number) => 
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+  const goToPrevMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
 
-  // ✅ ใช้ currentSourceName ใน title
-  const displayTitle = currentSourceName 
-    ? `Trading Activity Heatmap - ${currentSourceName}`
-    : 'Trading Activity Heatmap';
+  const goToNextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
+  };
+
+  const goToToday = () => {
+    setCurrentDate(new Date());
+  };
+
+  const handleDayClick = (date: string, hasTrade: boolean) => {
+    if (hasTrade && onDayClick) {
+      onDayClick(date);
+    }
+  };
 
   return (
-    <div className="bg-[#121212] border border-white/10 p-6 rounded-none space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+    <section className="bg-[#121212] border border-white/10 p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-xs font-black uppercase tracking-widest text-[#E5C158] flex items-center gap-2">
-            <span className="w-2.5 h-2.5 bg-[#E5C158]"></span>
-            {displayTitle}
+          <h3 className="text-sm font-black uppercase tracking-wider text-[#F5F5F5]">
+            Trading Activity Calendar
           </h3>
-          <p className="mt-1 text-[10px] font-mono uppercase text-slate-500">
-            {calendar.monthLabel}
+          <p className="mt-1 text-[10px] font-mono uppercase tracking-widest text-slate-500">
+            {MONTHS[month]} {year}
           </p>
         </div>
         
-        {/* Stats Summary */}
-        {Object.keys(dailySums).length > 0 && (
-          <div className="flex items-center gap-4 text-[10px] font-mono text-slate-400">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-emerald-500/20 border border-emerald-500/40"></span>
-              Profitable
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-rose-500/20 border border-rose-500/40"></span>
-              Losing
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 bg-white/5 border border-white/10"></span>
-              No Trade
-            </span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goToPrevMonth}
+            className="p-2 border border-white/10 hover:border-[#E5C158] transition-all text-slate-400 hover:text-[#E5C158]"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={goToToday}
+            className="px-3 py-1.5 border border-white/10 hover:border-[#E5C158] transition-all text-[10px] font-mono uppercase tracking-wider text-slate-400 hover:text-[#E5C158]"
+          >
+            Today
+          </button>
+          
+          <button
+            onClick={goToNextMonth}
+            className="p-2 border border-white/10 hover:border-[#E5C158] transition-all text-slate-400 hover:text-[#E5C158]"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1.5">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-          <div key={day} className="py-1 text-center text-[9px] font-mono uppercase text-slate-500">
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-wider">
+        <span className="text-slate-500">Legend:</span>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 h-4 bg-emerald-500/20 border border-emerald-500/30"></span>
+          <span className="text-emerald-400">Win</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 h-4 bg-red-500/20 border border-red-500/30"></span>
+          <span className="text-red-400">Loss</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 h-4 bg-yellow-500/20 border border-yellow-500/30"></span>
+          <span className="text-yellow-400">Break Even</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 h-4 bg-[#0A0A0A] border border-white/10"></span>
+          <span className="text-slate-500">No Trade</span>
+        </div>
+      </div>
+
+      {/* Calendar Grid - Day Names */}
+      <div className="grid grid-cols-7 gap-1 text-[10px] font-mono uppercase tracking-wider text-slate-500">
+        {DAYS_OF_WEEK.map((day) => (
+          <div key={day} className="text-center py-1">
             {day}
           </div>
         ))}
-
-        {calendar.cells.map((day, idx) => {
-          if (!day) return <div key={`blank-${idx}`} className="aspect-square" />;
-          
-          const dateKey = `${calendar.year}-${String(calendar.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const pnl = dailySums[dateKey];
-          const hasData = pnl !== undefined;
-          
-          const cellClass = hasData 
-            ? (pnl > 0 
-                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30' 
-                : 'bg-rose-500/20 border-rose-500/40 text-rose-300 hover:bg-rose-500/30')
-            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10';
-
-          return (
-            <div 
-              key={dateKey} 
-              className={`group relative aspect-square border p-2 transition-all duration-200 cursor-default ${cellClass}`}
-              title={hasData ? `${dateKey}: ${formatCurrency(pnl)}` : `${dateKey}: No trading activity`}
-            >
-              <span className="text-[10px] font-mono">{day}</span>
-              {hasData && (
-                <span className="absolute bottom-1 right-1 text-[8px] font-mono opacity-80">
-                  {formatCurrency(pnl)}
-                </span>
-              )}
-              
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 z-20 mb-2 hidden -translate-x-1/2 whitespace-nowrap border border-white/20 bg-black px-2 py-1 text-[9px] font-mono text-white group-hover:block">
-                {dateKey}: {hasData ? formatCurrency(pnl) : 'No trading activity'}
-              </div>
-            </div>
-          );
-        })}
       </div>
 
-      {/* Empty State */}
-      {Object.keys(dailySums).length === 0 && (
-        <div className="mt-4 border border-amber-500/30 p-3 text-[10px] font-mono text-amber-400">
-          ⚠️ No trading data found. Make sure your data has Date and P&L columns.
+      {/* Calendar Grid - Weeks */}
+      <div className="space-y-1">
+        {weekSummaries.map((week) => (
+          <div key={week.weekNumber} className="grid grid-cols-8 gap-1">
+            {/* Days */}
+            {week.days.map((day, index) => {
+              const isToday = day.date === new Date().toISOString().split('T')[0];
+              
+              if (day.day === 0) {
+                return (
+                  <div key={`empty-${index}`} className="aspect-square bg-[#0A0A0A] border border-white/5" />
+                );
+              }
+              
+              let bgColor = 'bg-[#0A0A0A] border-white/10';
+              let textColor = 'text-slate-400';
+              let pnlColor = 'text-slate-400';
+              
+              if (day.hasTrade) {
+                if (day.result === 'win') {
+                  bgColor = 'bg-emerald-500/20 border-emerald-500/30';
+                  textColor = 'text-emerald-400';
+                  pnlColor = 'text-emerald-400';
+                } else if (day.result === 'loss') {
+                  bgColor = 'bg-red-500/20 border-red-500/30';
+                  textColor = 'text-red-400';
+                  pnlColor = 'text-red-400';
+                } else {
+                  bgColor = 'bg-yellow-500/20 border-yellow-500/30';
+                  textColor = 'text-yellow-400';
+                  pnlColor = 'text-yellow-400';
+                }
+              }
+              
+              if (isToday) {
+                bgColor += ' ring-1 ring-[#E5C158]';
+              }
+              
+              return (
+                <button
+                  key={day.date || `empty-${index}`}
+                  onClick={() => handleDayClick(day.date, day.hasTrade)}
+                  className={`aspect-square p-1 border flex flex-col items-center justify-center transition-all hover:ring-1 hover:ring-[#E5C158] ${bgColor} ${
+                    day.hasTrade ? 'cursor-pointer' : 'cursor-default'
+                  }`}
+                >
+                  <span className={`text-xs font-bold ${textColor}`}>
+                    {day.day}
+                  </span>
+                  {day.hasTrade && (
+                    <>
+                      <span className={`text-[8px] font-mono ${pnlColor}`}>
+                        {formatCurrency(day.pnl)}
+                      </span>
+                      <span className="text-[7px] font-mono text-slate-500">
+                        {day.count} trade{day.count > 1 ? 's' : ''}
+                      </span>
+                    </>
+                  )}
+                </button>
+              );
+            })}
+            
+            {/* Week Summary */}
+            <div className="col-span-1 flex flex-col items-center justify-center border border-white/10 bg-[#0A0A0A] p-1 min-h-[60px]">
+              <span className="text-[8px] font-mono text-slate-500">Week {week.weekNumber}</span>
+              <span className={`text-[9px] font-mono font-bold ${week.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {formatCurrency(week.pnl)}
+              </span>
+              {week.count > 0 && (
+                <span className="text-[7px] font-mono text-slate-500">
+                  {week.count} trades
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Summary Stats */}
+      {Object.keys(dailyData).length > 0 && (
+        <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/10">
+          <div className="text-center">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Trading Days</p>
+            <p className="text-lg font-black text-[#F5F5F5]">
+              {Object.keys(dailyData).filter(date => dailyData[date].count > 0).length}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Total Trades</p>
+            <p className="text-lg font-black text-[#F5F5F5]">
+              {Object.values(dailyData).reduce((sum, d) => sum + d.count, 0)}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Total P&L</p>
+            <p className={`text-lg font-black ${Object.values(dailyData).reduce((sum, d) => sum + d.pnl, 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {formatCurrency(Object.values(dailyData).reduce((sum, d) => sum + d.pnl, 0))}
+            </p>
+          </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

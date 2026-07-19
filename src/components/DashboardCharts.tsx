@@ -5,16 +5,25 @@ import {
   BarChart, Bar,
   LineChart, Line,
   PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart
 } from 'recharts';
 import { Plus, Trash2, LayoutGrid, X, AlertCircle } from 'lucide-react';
 import { ParsedData, ChartConfig } from '../types';
 
-// Constants
 const COLORS = [
   '#E5C158', '#10b981', '#3b82f6', '#8b5cf6',
-  '#eab308', '#f43f5e', '#0ea5e9', '#f5f5f5'
+  '#eab308', '#f43f5e', '#0ea5e9', '#f5f5f9',
+  '#f97316', '#14b8a6', '#8b5cf6', '#ec4899'
 ];
+
+// Pie Colors คงที่
+const PIE_COLORS: Record<string, string> = {
+  'Wins': '#10b981',
+  'Losses': '#ef4444',
+  'Break Even': '#eab308',
+  'No Data': '#444444'
+};
 
 const PALETTES = COLORS.map(hex => ({
   hex,
@@ -26,7 +35,10 @@ const PALETTES = COLORS.map(hex => ({
     '#eab308': 'Amber Yellow',
     '#f43f5e': 'Rose Red',
     '#0ea5e9': 'Sky Blue',
-    '#f5f5f5': 'Classic White'
+    '#f5f5f9': 'Classic White',
+    '#f97316': 'Orange',
+    '#14b8a6': 'Teal',
+    '#ec4899': 'Pink'
   }[hex] || hex
 }));
 
@@ -37,20 +49,21 @@ interface DashboardChartsProps {
   startingBalance?: number;
 }
 
-// Utility functions
+// =============================================
+// Utility Functions
+// =============================================
+
 const normalizeDate = (value: unknown): string => {
   if (!value) return '';
   
   const raw = String(value).trim();
   const clean = raw.includes('T') ? raw.split('T')[0] : raw.split(' ')[0];
   
-  // YYYY-MM-DD or YYYY/MM/DD
   let match = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (match) {
     return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
   }
   
-  // DD/MM/YYYY or DD-MM-YYYY
   match = clean.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (match) {
     return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
@@ -73,6 +86,74 @@ const parsePnL = (value: unknown): number => {
   return parseFloat(cleaned) || 0;
 };
 
+// ✅ parseR() - ลบ R และ r ทั้งหมด
+const parseR = (value: unknown): number => {
+  const str = String(value ?? '0');
+  const cleaned = str
+    .replace(/[Rr]/g, '')
+    .replace(/\$/g, '')
+    .replace(/,/g, '')
+    .replace(/\s/g, '');
+  return parseFloat(cleaned) || 0;
+};
+
+const normalizeResult = (value: unknown): string => {
+  return String(value ?? '').trim().toLowerCase();
+};
+
+// ✅ Tooltip Formatter - แก้ไขแล้ว (ลบ name === 'value' ออก)
+const formatTooltipValue = (
+  value: number,
+  name: string,
+  chartType?: string
+) => {
+  const lower = (chartType ?? "").toLowerCase();
+
+  // ---------- Win Rate ----------
+  if (lower.includes("win rate")) {
+    return `${value.toFixed(1)}%`;
+  }
+
+  // ---------- R ----------
+  if (
+    lower.includes("r distribution") ||
+    lower.includes("monthly r") ||
+    lower.includes("r curve")
+  ) {
+    return `${value.toFixed(2)}R`;
+  }
+
+  // ---------- Equity ----------
+  if (lower.includes("equity")) {
+    return `$${value.toFixed(2)}`;
+  }
+
+  // ---------- Trades ----------
+  if (name === "count" || name === "Trades") {
+    return `${value} trades`;
+  }
+
+  // ---------- PnL ----------
+  if (name === "pnl" || name === "PnL") {
+    return `$${value.toFixed(2)}`;
+  }
+
+  return value.toFixed(2);
+};
+
+// ✅ Hash function สำหรับสีจากชื่อ
+function hashStringToColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return COLORS[Math.abs(hash) % COLORS.length];
+}
+
+// =============================================
+// Main Component
+// =============================================
+
 export default function DashboardCharts({ 
   data, 
   charts, 
@@ -89,17 +170,26 @@ export default function DashboardCharts({
   });
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Memoized column data
+  // ✅ Color cache สำหรับ Multi-line
+  const colorCache = useMemo(() => new Map<string, string>(), []);
+  const getColorForName = useCallback((name: string): string => {
+    if (!colorCache.has(name)) {
+      colorCache.set(name, hashStringToColor(name));
+    }
+    return colorCache.get(name)!;
+  }, [colorCache]);
+
   const { numericalColumns, categoricalColumns } = useMemo(() => ({
     numericalColumns: data.columns.filter(c => c.type === 'number'),
     categoricalColumns: data.columns.filter(c => c.type === 'string' || c.type === 'date')
   }), [data.columns]);
 
-  // ============================================
-  // Helper functions - ประกาศก่อน chartsData
-  // ============================================
-  
-  const generateWinRateTrendData = (chart: ChartConfig, data: ParsedData, xAxisKey: string, yAxisKey: string) => {
+  // =============================================
+  // Chart Data Generators
+  // =============================================
+
+  // ✅ Win Rate Trend - ใช้ result และ winRate แทน value
+  const generateWinRateTrendData = (chart: ChartConfig, data: ParsedData, xAxisKey: string) => {
     const sortedRows = [...data.rows].sort((a, b) => {
       const aDate = Date.parse(normalizeDate(a[xAxisKey]));
       const bDate = Date.parse(normalizeDate(b[xAxisKey]));
@@ -109,11 +199,15 @@ export default function DashboardCharts({
     const dailyWins: Record<string, { wins: number, total: number }> = {};
     sortedRows.forEach(row => {
       const date = normalizeDate(row[xAxisKey]) || 'No Date';
-      const pnl = parsePnL(row[yAxisKey]);
-      if (pnl !== 0) {
+      const result = normalizeResult(row.Result ?? row.result);
+      
+      if (result === 'win') {
+        if (!dailyWins[date]) dailyWins[date] = { wins: 0, total: 0 };
+        dailyWins[date].wins++;
+        dailyWins[date].total++;
+      } else if (result === 'loss') {
         if (!dailyWins[date]) dailyWins[date] = { wins: 0, total: 0 };
         dailyWins[date].total++;
-        if (pnl > 0) dailyWins[date].wins++;
       }
     });
 
@@ -129,13 +223,14 @@ export default function DashboardCharts({
       rollingTotal += dailyWins[date].total;
       return {
         name: date,
-        value: Number(((rollingTotal > 0 ? rollingWins / rollingTotal : 0) * 100).toFixed(1))
+        winRate: Number(((rollingTotal > 0 ? rollingWins / rollingTotal : 0) * 100).toFixed(1))
       };
     });
     
     return { ...chart, chartData: trendData };
   };
 
+  // Equity Curve
   const generateEquityData = (chart: ChartConfig, data: ParsedData, xAxisKey: string, yAxisKey: string) => {
     const dailyGrouped: Record<string, number> = {};
     data.rows.forEach(row => {
@@ -159,6 +254,156 @@ export default function DashboardCharts({
       ...chart,
       chartData: equityData.length > 0 ? equityData : [{ name: 'Start', value: startingBalance }]
     };
+  };
+
+  // Equity by Category - เริ่มที่ 0 (relative equity)
+  const generateEquityByCategory = (chart: ChartConfig, data: ParsedData, xAxisKey: string) => {
+    const grouped: Record<string, { pnl: number, days: string[] }> = {};
+    
+    data.rows.forEach(row => {
+      const key = String(row[xAxisKey] !== undefined ? row[xAxisKey] : 'Unspecified');
+      if (!key.trim()) return;
+      
+      const date = normalizeDate(row.Date ?? row.trade_date ?? '');
+      if (!date) return;
+      
+      if (!grouped[key]) grouped[key] = { pnl: 0, days: [] };
+      
+      const pnl = parsePnL(row['P&L'] ?? row.net_pnl ?? 0);
+      grouped[key].pnl += pnl;
+      if (!grouped[key].days.includes(date)) {
+        grouped[key].days.push(date);
+      }
+    });
+
+    const allDates = [...new Set(data.rows.map(row => normalizeDate(row.Date ?? row.trade_date ?? '')))]
+      .filter(d => d)
+      .sort();
+    
+    const result: { name: string, [key: string]: number | string }[] = [];
+    let runningTotals: Record<string, number> = {};
+    
+    Object.keys(grouped).forEach(key => {
+      runningTotals[key] = 0;
+    });
+    
+    allDates.forEach(date => {
+      const entry: { name: string, [key: string]: number | string } = { name: date };
+      
+      Object.keys(grouped).forEach(key => {
+        const dayPnl = data.rows
+          .filter(row => {
+            const rowDate = normalizeDate(row.Date ?? row.trade_date ?? '');
+            const rowKey = String(row[xAxisKey] !== undefined ? row[xAxisKey] : 'Unspecified');
+            return rowDate === date && rowKey === key;
+          })
+          .reduce((sum, row) => sum + parsePnL(row['P&L'] ?? row.net_pnl ?? 0), 0);
+        
+        runningTotals[key] += dayPnl;
+        entry[key] = Number(runningTotals[key].toFixed(2));
+      });
+      
+      result.push(entry);
+    });
+
+    return { ...chart, chartData: result, isMultiLine: true };
+  };
+
+  // Monthly R Curve
+  const generateMonthlyRCurve = (chart: ChartConfig, data: ParsedData) => {
+    const monthlyR: Record<string, { totalR: number, count: number }> = {};
+    
+    data.rows.forEach(row => {
+      const date = normalizeDate(row.Date ?? row.trade_date ?? '');
+      if (!date) return;
+      
+      const month = date.slice(0, 7);
+      const r = parseR(row['R-Multiple'] ?? row.r_multiple ?? 0);
+      
+      if (!monthlyR[month]) monthlyR[month] = { totalR: 0, count: 0 };
+      monthlyR[month].totalR += r;
+      monthlyR[month].count++;
+    });
+
+    const chartData = Object.entries(monthlyR)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([month, data]) => ({
+        name: month,
+        value: data.count > 0 ? Number((data.totalR / data.count).toFixed(2)) : 0,
+        count: data.count
+      }));
+
+    return { ...chart, chartData };
+  };
+
+  // R Distribution
+  const generateRDistributionData = (chart: ChartConfig, data: ParsedData) => {
+    const bins: Record<string, number> = {
+      '< -5R': 0,
+      '-5R~-3R': 0,
+      '-3R~-2R': 0,
+      '-2R~-1R': 0,
+      'BE': 0,
+      '1R~2R': 0,
+      '2R~3R': 0,
+      '3R~5R': 0,
+      '> 5R': 0
+    };
+
+    data.rows.forEach(row => {
+      const r = parseR(row['R-Multiple'] ?? row.r_multiple ?? 0);
+      
+      if (r < -5) bins['< -5R']++;
+      else if (r >= -5 && r < -3) bins['-5R~-3R']++;
+      else if (r >= -3 && r < -2) bins['-3R~-2R']++;
+      else if (r >= -2 && r < -0.5) bins['-2R~-1R']++;
+      else if (r >= -0.5 && r <= 0.5) bins['BE']++;
+      else if (r > 0.5 && r <= 2) bins['1R~2R']++;
+      else if (r > 2 && r <= 3) bins['2R~3R']++;
+      else if (r > 3 && r <= 5) bins['3R~5R']++;
+      else if (r > 5) bins['> 5R']++;
+    });
+
+    const chartData = Object.entries(bins)
+      .filter(([_, value]) => value > 0)
+      .map(([name, value]) => ({ name, value }));
+
+    return { ...chart, chartData };
+  };
+
+  // Performance Chart - เก็บ totalR แยก
+  const generatePerformanceData = (chart: ChartConfig, data: ParsedData, xAxisKey: string) => {
+    const grouped: Record<string, { totalPnL: number, totalR: number, count: number, wins: number }> = {};
+    
+    data.rows.forEach(row => {
+      let key = String(row[xAxisKey] !== undefined ? row[xAxisKey] : 'Unspecified');
+      if (!key.trim()) key = 'Unspecified';
+      
+      if (!grouped[key]) grouped[key] = { totalPnL: 0, totalR: 0, count: 0, wins: 0 };
+      
+      const pnl = parsePnL(row['P&L'] ?? row.net_pnl ?? 0);
+      const r = parseR(row['R-Multiple'] ?? row.r_multiple ?? 0);
+      
+      grouped[key].totalPnL += pnl;
+      grouped[key].totalR += r;
+      grouped[key].count++;
+      
+      const result = normalizeResult(row.Result ?? row.result);
+      if (result === 'win') grouped[key].wins++;
+    });
+
+    const chartData = Object.entries(grouped)
+      .map(([name, data]) => ({
+        name,
+        pnl: Number(data.totalPnL.toFixed(2)),
+        avgR: data.count > 0 ? Number((data.totalR / data.count).toFixed(2)) : 0,
+        count: data.count,
+        winRate: data.count > 0 ? Number(((data.wins / data.count) * 100).toFixed(1)) : 0
+      }))
+      .sort((a, b) => b.pnl - a.pnl)
+      .slice(0, 10);
+
+    return { ...chart, chartData };
   };
 
   const generateDefaultChartData = (chart: ChartConfig, data: ParsedData, xAxisKey: string, yAxisKey: string) => {
@@ -189,7 +434,6 @@ export default function DashboardCharts({
       return !isNaN(aDate) && !isNaN(bDate) ? aDate - bDate : a.name.localeCompare(b.name, undefined, { numeric: true });
     });
 
-    // Pie chart optimization
     if (chart.type === 'pie' && chartData.length > 7) {
       const sortedByVal = [...chartData].sort((a, b) => b.value - a.value);
       const topSix = sortedByVal.slice(0, 6);
@@ -200,46 +444,79 @@ export default function DashboardCharts({
     return { ...chart, chartData };
   };
 
-  // ============================================
-  // chartsData - ใช้ helper functions ที่ประกาศไว้แล้ว
-  // ============================================
+  // =============================================
+  // chartsData - ใช้ useMemo
+  // =============================================
   const chartsData = useMemo(() => {
     return charts.map((chart) => {
       const { xAxisKey, yAxisKey, type, title } = chart;
       const titleLower = title.toLowerCase();
 
-      // Special chart types
+      // Win/Loss Pie
       if (titleLower.includes('win/loss') || (type === 'pie' && yAxisKey === 'P&L')) {
-        const { wins, losses } = data.rows.reduce((acc, row) => {
-          const pnl = parsePnL(row[yAxisKey]);
-          if (pnl > 0) acc.wins++;
-          else if (pnl < 0) acc.losses++;
-          return acc;
-        }, { wins: 0, losses: 0 });
-        
+        const wins = data.rows.filter(row => {
+          const result = normalizeResult(row.Result ?? row.result);
+          return result === 'win';
+        }).length;
+
+        const losses = data.rows.filter(row => {
+          const result = normalizeResult(row.Result ?? row.result);
+          return result === 'loss';
+        }).length;
+
+        const breakEven = data.rows.filter(row => {
+          const result = normalizeResult(row.Result ?? row.result);
+          return result === 'break even' || result === 'be' || result === 'miss entry';
+        }).length;
+
+        const chartData = [];
+        if (wins > 0) chartData.push({ name: 'Wins', value: wins });
+        if (losses > 0) chartData.push({ name: 'Losses', value: losses });
+        if (breakEven > 0) chartData.push({ name: 'Break Even', value: breakEven });
+
         return {
           ...chart,
-          chartData: [
-            { name: 'Wins', value: wins },
-            { name: 'Losses', value: losses }
-          ]
+          chartData: chartData.length > 0 ? chartData : [{ name: 'No Data', value: 1 }],
+          isPie: true
         };
       }
 
+      // R Distribution
+      if (titleLower.includes('r distribution') || titleLower.includes('r histogram')) {
+        return generateRDistributionData(chart, data);
+      }
+
+      // Monthly R Curve
+      if (titleLower.includes('monthly r') || titleLower.includes('r curve')) {
+        return generateMonthlyRCurve(chart, data);
+      }
+
+      // Equity by Category
+      if (titleLower.includes('equity by') || titleLower.includes('equity curve by')) {
+        return generateEquityByCategory(chart, data, xAxisKey);
+      }
+
+      // Performance Charts
+      if (titleLower.includes('setup') || titleLower.includes('session') || titleLower.includes('symbol')) {
+        return generatePerformanceData(chart, data, xAxisKey);
+      }
+
       if (titleLower.includes('win rate trend')) {
-        return generateWinRateTrendData(chart, data, xAxisKey, yAxisKey);
+        return generateWinRateTrendData(chart, data, xAxisKey);
       }
 
       if (titleLower.includes('equity') || titleLower.includes('cumulative')) {
         return generateEquityData(chart, data, xAxisKey, yAxisKey);
       }
 
-      // Default aggregation
       return generateDefaultChartData(chart, data, xAxisKey, yAxisKey);
     });
   }, [data, charts, startingBalance]);
 
+  // =============================================
   // Handlers
+  // =============================================
+
   const handleAddChart = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const { title, type, xKey, yKey, color } = newChart;
@@ -268,17 +545,17 @@ export default function DashboardCharts({
     onChartsChange(charts.filter(chart => chart.id !== id));
   }, [charts, onChartsChange]);
 
-  // Click outside handler
   const handleModalClick = useCallback((e: React.MouseEvent) => {
     if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
       setIsAdding(false);
     }
   }, []);
 
-  // ============================================
-  // ✅ แยก PieChart ออกจาก ChartComponent
-  // ============================================
-  const renderChart = (chart: ChartConfig & { chartData: any[] }) => {
+  // =============================================
+  // Render Chart
+  // =============================================
+
+  const renderChart = (chart: ChartConfig & { chartData: any[], isPie?: boolean, isMultiLine?: boolean }) => {
     if (chart.chartData.length === 0) {
       return (
         <div className="h-full flex flex-col items-center justify-center text-xs font-mono text-slate-500">
@@ -288,6 +565,7 @@ export default function DashboardCharts({
       );
     }
 
+    // ✅ tooltipProps พร้อม formatter ที่แก้ไขแล้ว
     const tooltipProps = {
       contentStyle: { 
         backgroundColor: '#121212', 
@@ -302,14 +580,30 @@ export default function DashboardCharts({
         fontFamily: 'Space Grotesk' 
       },
       itemStyle: { 
-        color: chart.color, 
         fontSize: '11px', 
         fontFamily: 'Fira Code' 
+      },
+      formatter: (value: unknown, name: unknown) => {
+        const rawValue = Array.isArray(value)
+          ? value[0]
+          : value;
+
+        const numericValue = Number(rawValue ?? 0);
+        const seriesName = String(name ?? '');
+
+        return [
+          formatTooltipValue(
+            Number.isFinite(numericValue) ? numericValue : 0,
+            seriesName,
+            chart.title.toLowerCase()
+          ),
+          seriesName,
+        ];
       }
     };
 
-    // ✅ Pie Chart แยกต่างหาก
-    if (chart.type === 'pie') {
+    // Pie Chart
+    if (chart.type === 'pie' || chart.isPie) {
       return (
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -323,11 +617,14 @@ export default function DashboardCharts({
               innerRadius={55}
               outerRadius={80}
               paddingAngle={3}
-              label={({ name, percent = 0 }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+              label={({ name, value }) => `${name} (${value})`}
               labelLine={false}
             >
-              {chart.chartData.map((_, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              {chart.chartData.map((entry: any, index: number) => (
+                <Cell 
+                  key={`cell-${index}`} 
+                  fill={PIE_COLORS[entry.name] || COLORS[index % COLORS.length]} 
+                />
               ))}
             </Pie>
           </PieChart>
@@ -335,7 +632,147 @@ export default function DashboardCharts({
       );
     }
 
-    // ✅ Bar, Line, Area Charts
+    // Multi-line Equity by Category
+    if (chart.isMultiLine) {
+      const keys = Object.keys(chart.chartData[0]).filter(k => k !== 'name');
+      
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chart.chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.08)" />
+            <XAxis 
+              dataKey="name" 
+              tick={{ fill: '#888888', fontSize: 9, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false}
+              interval={Math.floor(chart.chartData.length / 10)}
+            />
+            <YAxis 
+              tick={{ fill: '#888888', fontSize: 10, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false}
+              tickFormatter={(value) => `$${value}`}
+            />
+            <Tooltip {...tooltipProps} />
+            {keys.map((key) => (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={getColorForName(key)}
+                strokeWidth={2}
+                dot={{ r: 1 }}
+                name={key}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    // ✅ Win Rate Trend - ใช้ winRate แทน value
+    if (chart.title.toLowerCase().includes('win rate trend')) {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chart.chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.08)" />
+            <XAxis 
+              dataKey="name" 
+              tick={{ fill: '#888888', fontSize: 10, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false} 
+            />
+            <YAxis 
+              tick={{ fill: '#888888', fontSize: 10, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false}
+              tickFormatter={(value) => `${value}%`}
+              domain={[0, 100]}
+            />
+            <Tooltip {...tooltipProps} />
+            <Line 
+              type="monotone" 
+              dataKey="winRate" 
+              stroke={chart.color} 
+              strokeWidth={3} 
+              dot={{ r: 2, strokeWidth: 1 }} 
+              activeDot={{ r: 5 }} 
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    // ✅ Performance Chart - แยกแกน Y สำหรับ PnL, Trades, Win Rate
+    if (chart.chartData.length > 0 && 'winRate' in chart.chartData[0]) {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chart.chartData} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.08)" />
+            <XAxis 
+              dataKey="name" 
+              tick={{ fill: '#888888', fontSize: 9, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false}
+              interval={0}
+              angle={-15}
+              textAnchor="end"
+              height={50}
+            />
+            <YAxis 
+              yAxisId="left"
+              tick={{ fill: '#888888', fontSize: 10, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false}
+              tickFormatter={(value) => `$${value}`}
+            />
+            <YAxis 
+              yAxisId="right"
+              orientation="right"
+              tick={{ fill: '#888888', fontSize: 10, fontFamily: 'Fira Code' }} 
+              axisLine={false} 
+              tickLine={false}
+              tickFormatter={(value) => `${value}%`}
+              domain={[0, 100]}
+            />
+            <YAxis 
+              yAxisId="trades"
+              orientation="right"
+              hide
+              domain={[0, 'auto']}
+            />
+            <Tooltip {...tooltipProps} />
+            <Bar 
+              yAxisId="trades"
+              dataKey="count" 
+              fill="#64748b" 
+              opacity={0.25} 
+              radius={[4, 4, 0, 0]} 
+              maxBarSize={35} 
+              name="Trades"
+            />
+            <Bar 
+              yAxisId="left" 
+              dataKey="pnl" 
+              fill={chart.color} 
+              radius={[4, 4, 0, 0]} 
+              maxBarSize={35} 
+              name="PnL"
+            />
+            <Line 
+              yAxisId="right" 
+              type="monotone" 
+              dataKey="winRate" 
+              stroke="#10b981" 
+              strokeWidth={2} 
+              dot={{ r: 3 }} 
+              name="Win Rate"
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      );
+    }
+
     const commonProps = {
       data: chart.chartData,
       margin: { top: 10, right: 10, left: -10, bottom: 0 }
@@ -386,12 +823,12 @@ export default function DashboardCharts({
     );
   };
 
-  // ============================================
-  // ✅ return เดิมที่มี UI ครบถ้วน
-  // ============================================
+  // =============================================
+  // Main Render
+  // =============================================
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-black uppercase tracking-wider text-[#F5F5F5] flex items-center gap-2">
           <span className="w-2.5 h-2.5 bg-[#E5C158]"></span>
@@ -411,7 +848,6 @@ export default function DashboardCharts({
         </button>
       </div>
 
-      {/* Empty State */}
       {charts.length === 0 ? (
         <div className="text-center p-12 bg-[#121212] rounded-none border border-dashed border-white/10">
           <LayoutGrid className="w-10 h-10 text-slate-500 mx-auto mb-3" />
@@ -436,7 +872,11 @@ export default function DashboardCharts({
                 <div>
                   <h3 className="text-xs font-black uppercase tracking-wider text-[#F5F5F5]">{chart.title}</h3>
                   <p className="text-[10px] text-slate-400 mt-1 uppercase font-mono tracking-widest">
-                    SUM OF <span className="font-bold text-[#E5C158]">{chart.yAxisKey}</span> BY <span className="font-bold">{chart.xAxisKey}</span>
+                    {chart.isMultiLine ? 'EQUITY CURVE BY CATEGORY' : 
+                     chart.title.toLowerCase().includes('setup') || 
+                     chart.title.toLowerCase().includes('session') || 
+                     chart.title.toLowerCase().includes('symbol') ? 'PERFORMANCE ANALYSIS' :
+                     `SUM OF ${chart.yAxisKey} BY ${chart.xAxisKey}`}
                   </p>
                 </div>
                 <button
@@ -458,66 +898,100 @@ export default function DashboardCharts({
 
       {/* Add Chart Modal */}
       {isAdding && (
-        <div 
-          className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
           onClick={handleModalClick}
         >
-          <div ref={modalRef} className="bg-[#121212] rounded-none border border-white/20 p-8 max-w-md w-full shadow-2xl space-y-6">
+          <div
+            ref={modalRef}
+            className="w-full max-w-md space-y-6 border border-white/20 bg-[#121212] p-8 shadow-2xl"
+          >
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="text-sm font-black uppercase tracking-wider text-[#F5F5F5]">Deploy custom chart plot</h3>
+              <h3 className="text-sm font-black uppercase tracking-wider text-[#F5F5F5]">
+                Deploy custom chart plot
+              </h3>
+
               <button
+                type="button"
                 onClick={() => setIsAdding(false)}
-                className="p-1 hover:bg-white/5 text-slate-400 hover:text-[#F5F5F5] transition-colors"
+                className="p-1 text-slate-400 transition-colors hover:bg-white/5 hover:text-[#F5F5F5]"
               >
-                <X className="w-5 h-5" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
             <form onSubmit={handleAddChart} className="space-y-4">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Chart Title</label>
+                <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Chart Title
+                </label>
+
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Sales breakdown by Rep"
+                  placeholder="e.g. Setup Performance"
                   value={newChart.title}
-                  onChange={(e) => setNewChart(prev => ({ ...prev, title: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 border border-white/10 rounded-none text-xs font-mono bg-[#0A0A0A] text-[#F5F5F5] focus:outline-none focus:border-[#E5C158]"
+                  onChange={(event) =>
+                    setNewChart((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  className="w-full border border-white/10 bg-[#0A0A0A] px-3.5 py-2.5 font-mono text-xs text-[#F5F5F5] outline-none focus:border-[#E5C158]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">X-Axis (Group Dimension)</label>
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    X-Axis
+                  </label>
+
                   <select
                     required
                     value={newChart.xKey}
-                    onChange={(e) => setNewChart(prev => ({ ...prev, xKey: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 border border-white/10 rounded-none text-xs font-mono bg-[#0A0A0A] text-[#F5F5F5] focus:outline-none focus:border-[#E5C158]"
+                    onChange={(event) =>
+                      setNewChart((current) => ({
+                        ...current,
+                        xKey: event.target.value,
+                      }))
+                    }
+                    className="w-full border border-white/10 bg-[#0A0A0A] px-3.5 py-2.5 font-mono text-xs text-[#F5F5F5] outline-none focus:border-[#E5C158]"
                   >
                     <option value="">Select column...</option>
-                    {categoricalColumns.map((col) => (
-                      <option key={col.name} value={col.name}>
-                        {col.name} ({col.type.toUpperCase()})
+
+                    {categoricalColumns.map((column) => (
+                      <option key={column.name} value={column.name}>
+                        {column.name} ({column.type.toUpperCase()})
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Y-Axis (Series Value)</label>
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Y-Axis
+                  </label>
+
                   <select
                     required
                     value={newChart.yKey}
-                    onChange={(e) => setNewChart(prev => ({ ...prev, yKey: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 border border-white/10 rounded-none text-xs font-mono bg-[#0A0A0A] text-[#F5F5F5] focus:outline-none focus:border-[#E5C158]"
+                    onChange={(event) =>
+                      setNewChart((current) => ({
+                        ...current,
+                        yKey: event.target.value,
+                      }))
+                    }
+                    className="w-full border border-white/10 bg-[#0A0A0A] px-3.5 py-2.5 font-mono text-xs text-[#F5F5F5] outline-none focus:border-[#E5C158]"
                   >
                     <option value="">Select column...</option>
-                    {numericalColumns.map((col) => (
-                      <option key={col.name} value={col.name}>
-                        {col.name}
+
+                    {numericalColumns.map((column) => (
+                      <option key={column.name} value={column.name}>
+                        {column.name}
                       </option>
                     ))}
+
                     {numericalColumns.length === 0 && (
                       <option disabled>No numeric columns</option>
                     )}
@@ -526,11 +1000,19 @@ export default function DashboardCharts({
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Plot type</label>
+                <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Plot Type
+                </label>
+
                 <select
                   value={newChart.type}
-                  onChange={(e) => setNewChart(prev => ({ ...prev, type: e.target.value as ChartConfig['type'] }))}
-                  className="w-full px-3.5 py-2.5 border border-white/10 rounded-none text-xs font-mono bg-[#0A0A0A] text-[#F5F5F5] focus:outline-none focus:border-[#E5C158]"
+                  onChange={(event) =>
+                    setNewChart((current) => ({
+                      ...current,
+                      type: event.target.value as ChartConfig['type'],
+                    }))
+                  }
+                  className="w-full border border-white/10 bg-[#0A0A0A] px-3.5 py-2.5 font-mono text-xs text-[#F5F5F5] outline-none focus:border-[#E5C158]"
                 >
                   <option value="bar">BAR GRAPH</option>
                   <option value="line">LINE GRAPH</option>
@@ -541,20 +1023,32 @@ export default function DashboardCharts({
 
               {newChart.type !== 'pie' && (
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Series Color Accent</label>
+                  <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Series Color
+                  </label>
+
                   <div className="flex flex-wrap gap-2">
                     {PALETTES.map((palette) => (
                       <button
                         key={palette.hex}
                         type="button"
-                        onClick={() => setNewChart(prev => ({ ...prev, color: palette.hex }))}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[10px] font-mono uppercase transition-all ${
+                        onClick={() =>
+                          setNewChart((current) => ({
+                            ...current,
+                            color: palette.hex,
+                          }))
+                        }
+                        className={`flex items-center gap-1.5 border px-3 py-1.5 font-mono text-[10px] uppercase transition-all ${
                           newChart.color === palette.hex
-                            ? 'bg-[#E5C158] border-[#E5C158] text-black font-bold'
-                            : 'bg-[#0A0A0A] border-white/10 text-slate-400 hover:bg-white/5'
+                            ? 'border-[#E5C158] bg-[#E5C158] font-bold text-black'
+                            : 'border-white/10 bg-[#0A0A0A] text-slate-400 hover:bg-white/5'
                         }`}
                       >
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: palette.hex }}></span>
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: palette.hex }}
+                        />
+
                         {palette.label}
                       </button>
                     ))}
@@ -562,18 +1056,19 @@ export default function DashboardCharts({
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-3 border-t border-white/10 pt-5 mt-2">
+              <div className="mt-2 flex items-center justify-end gap-3 border-t border-white/10 pt-5">
                 <button
                   type="button"
                   onClick={() => setIsAdding(false)}
-                  className="px-4 py-2.5 bg-transparent hover:bg-white/5 text-slate-400 hover:text-white text-xs font-bold uppercase tracking-wider rounded-none border border-white/20 transition-all"
+                  className="border border-white/20 bg-transparent px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-400 transition-all hover:bg-white/5 hover:text-white"
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
                   disabled={numericalColumns.length === 0}
-                  className="px-4 py-2.5 bg-[#E5C158] hover:bg-[#C9A23E] text-black text-xs font-bold uppercase tracking-wider rounded-none transition-colors disabled:opacity-40"
+                  className="bg-[#E5C158] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-[#C9A23E] disabled:opacity-40"
                 >
                   Plot Series
                 </button>

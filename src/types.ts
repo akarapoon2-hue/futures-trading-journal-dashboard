@@ -1,3 +1,7 @@
+// =============================================
+// src/types/index.ts
+// =============================================
+
 export type ColumnType = 'number' | 'string' | 'date';
 
 export interface ColumnInfo {
@@ -20,13 +24,19 @@ export interface KPIConfig {
   color: string;
 }
 
+// ✅ เพิ่ม isPie และ isMultiLine
 export interface ChartConfig {
   id: string;
   title: string;
-  type: 'line' | 'bar' | 'stacked-bar' | 'area' | 'pie';
+  type: 'bar' | 'line' | 'area' | 'pie' | 'stacked-bar';
+
   xAxisKey: string;
   yAxisKey: string;
+
   color: string;
+
+  isPie?: boolean;        // ✅ เพิ่ม
+  isMultiLine?: boolean;  // ✅ เพิ่ม
 }
 
 export interface DashboardState {
