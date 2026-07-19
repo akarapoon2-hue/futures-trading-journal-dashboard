@@ -1,10 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { Trade } from '../types/trading';
+import type { ParsedData } from '../types';
 
 interface TradingHeatmapProps {
-  trades: Trade[];
+  data: ParsedData;
   onDayClick?: (date: string) => void;
+}
+
+interface HeatmapTrade {
+  trade_date: string;
+  net_pnl: number;
+  result: string;
 }
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -21,11 +27,43 @@ const formatCurrency = (value: number): string => {
   return `${sign}$${value.toFixed(2)}`;
 };
 
-export default function TradingHeatmap({ trades, onDayClick }: TradingHeatmapProps) {
+export default function TradingHeatmap({
+  data,
+  onDayClick,
+}: TradingHeatmapProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
+
+  // ✅ แปลง ParsedData rows เป็น HeatmapTrade[] format
+  const trades = useMemo<HeatmapTrade[]>(() => {
+    if (!data?.rows || data.rows.length === 0) {
+      return [];
+    }
+
+    return data.rows.map((row) => ({
+      trade_date: String(
+        row.Date ??
+        row.TradeDate ??
+        row.trade_date ??
+        '',
+      ),
+      net_pnl: Number(
+        row['P&L'] ??
+        row.Net ??
+        row.NetPnl ??
+        row.net_pnl ??
+        0,
+      ),
+      result: String(
+        row.Result ??
+        row.WinLoss ??
+        row.result ??
+        '',
+      ),
+    }));
+  }, [data]);
 
   // ✅ สร้างข้อมูลรายวันจาก trades
   const dailyData = useMemo(() => {

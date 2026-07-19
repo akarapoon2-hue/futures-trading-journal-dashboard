@@ -22,6 +22,8 @@ export interface Trade {
   gross_pnl: number;
   net_pnl: number;
 
+  result: string; // ✅ เพิ่มบรรทัดนี้
+
   r_multiple: number;
 
   session: string;
@@ -102,7 +104,6 @@ export enum AccountStatus {
 
 // =============================================
 // Dashboard & Metrics Types
-// ✅ มีการ export DashboardMetrics ถูกต้อง
 // =============================================
 
 export interface DashboardMetrics {
