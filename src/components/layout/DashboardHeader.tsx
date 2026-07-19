@@ -1,115 +1,166 @@
-import { Bell, ChevronDown, Search } from "lucide-react";
-import tradexaLogo from "../../assets/logo/logo.svg";
+import {
+  Activity,
+  Clock,
+  Coins,
+  Database,
+  LogOut,
+  RefreshCw,
+  Settings,
+  TrendingUp,
+  User,
+  Wifi,
+} from 'lucide-react';
 
-type DashboardHeaderProps = {
-  userName?: string;
-  userRole?: string;
-};
+import tradexaLogo from '../../assets/logo/logo.svg';
+
+interface AccountInfo {
+  name: string;
+  currentBalance: number;
+  tradeCount: number;
+  totalPnL: number;
+  lastSync: string;
+}
+
+interface DashboardHeaderProps {
+  email: string;
+  accountInfo: AccountInfo | null;
+  accountLoading: boolean;
+  canReset: boolean;
+  onOpenSettings: () => void;
+  onOpenBackup: () => void;
+  onReset: () => void;
+  onLogout: () => void | Promise<void>;
+}
 
 export default function DashboardHeader({
-  userName = "Akkaraphoun",
-  userRole = "Professional Trader",
+  email,
+  accountInfo,
+  accountLoading,
+  canReset,
+  onOpenSettings,
+  onOpenBackup,
+  onReset,
+  onLogout,
 }: DashboardHeaderProps) {
-  const userInitial = userName.trim().charAt(0).toUpperCase() || "T";
+  const totalPnL = accountInfo?.totalPnL ?? 0;
 
   return (
-    <header className="h-20 border-b border-zinc-800 bg-[#090909] px-4 sm:px-6">
-      <div className="flex h-full items-center justify-between gap-4">
-        {/* Left: Logo and Search */}
-        <div className="flex min-w-0 items-center gap-6 lg:gap-8">
-          <img
-            src={tradexaLogo}
-            alt="TRADEXA Professional Trading Operating System"
-            className="h-10 w-auto shrink-0 sm:h-11"
-          />
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0A0A0A] backdrop-blur-md">
+      <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-4 py-4 sm:px-6 md:flex-row md:items-center lg:px-8">
+        <img
+          src={tradexaLogo}
+          alt="TRADEXA"
+          className="h-16 w-auto"
+        />
 
-          <div className="relative hidden lg:block">
-            <Search
-              size={18}
-              aria-hidden="true"
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
-            />
-
-            <input
-              type="search"
-              placeholder="Search..."
-              aria-label="Search dashboard"
-              className="
-                w-72 rounded-xl border border-zinc-700 bg-[#111111]
-                py-2 pl-10 pr-4 text-sm text-white outline-none
-                transition-colors placeholder:text-zinc-500
-                hover:border-zinc-600
-                focus:border-[#E5C158]
-                focus:ring-2 focus:ring-[#E5C158]/20
-              "
-            />
+        {accountLoading ? (
+          <div className="flex items-center gap-2 border border-white/10 bg-[#121212] px-6 py-3">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#E5C158] border-t-transparent" />
+            <span className="font-mono text-[10px] text-slate-400">
+              Loading...
+            </span>
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-6 border border-white/10 bg-[#121212] px-6 py-3">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Wifi className="h-4 w-4 text-[#10b981]" />
+                <span className="absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-[#10b981]" />
+              </div>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-[#10b981]">
+                Live
+              </span>
+            </div>
 
-        {/* Right: Actions */}
-        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+            <div className="flex items-center gap-2">
+              <User className="h-3.5 w-3.5 text-slate-400" />
+              <span className="font-mono text-xs text-[#F5F5F5]">
+                {accountInfo?.name || 'No Account'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Coins className="h-3.5 w-3.5 text-[#E5C158]" />
+              <span className="font-mono text-xs text-[#E5C158]">
+                ${accountInfo?.currentBalance?.toLocaleString() || '0'}
+              </span>
+            </div>
+
+            <div
+              className={`flex items-center gap-2 ${
+                totalPnL >= 0 ? 'text-[#10b981]' : 'text-red-400'
+              }`}
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span className="font-mono text-xs">
+                {totalPnL >= 0 ? '+' : ''}
+                {totalPnL.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Activity className="h-3.5 w-3.5 text-slate-400" />
+              <span className="font-mono text-xs text-slate-400">
+                {accountInfo?.tradeCount || 0} trades
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 border-l border-white/10 pl-4">
+              <Clock className="h-3.5 w-3.5 text-slate-500" />
+              <span className="font-mono text-[10px] text-slate-500">
+                {accountInfo?.lastSync || '--:--:--'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 border border-white/10 px-3 py-1.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#E5C158] text-xs font-bold text-black">
+              {email.charAt(0).toUpperCase() || 'U'}
+            </div>
+
+            <span className="max-w-[100px] truncate font-mono text-xs text-slate-400">
+              {email}
+            </span>
+          </div>
+
           <button
             type="button"
-            aria-label="View notifications"
-            className="
-              relative rounded-xl border border-transparent bg-[#111111] p-3
-              transition-colors hover:border-zinc-700 hover:bg-zinc-800
-              focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-[#E5C158]/60
-            "
+            onClick={onOpenSettings}
+            className="flex items-center gap-1.5 border border-white/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#F5F5F5] transition-all hover:border-[#E5C158] hover:bg-white/5 hover:text-[#E5C158]"
           >
-            <Bell
-              size={20}
-              aria-hidden="true"
-              className="text-zinc-300"
-            />
-
-            <span
-              aria-hidden="true"
-              className="
-                absolute right-2 top-2 h-2.5 w-2.5 rounded-full
-                bg-[#B3261E] ring-2 ring-[#090909]
-              "
-            />
+            <Settings className="h-3.5 w-3.5" />
+            Settings
           </button>
 
           <button
             type="button"
-            aria-label="Open profile menu"
-            className="
-              flex items-center gap-3 rounded-xl border border-transparent
-              bg-[#111111] px-2 py-2 transition-colors
-              hover:border-zinc-700 hover:bg-zinc-800
-              focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-[#E5C158]/60
-              sm:px-4
-            "
+            onClick={onOpenBackup}
+            className="flex items-center gap-1.5 border border-white/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#F5F5F5] transition-all hover:border-[#E5C158] hover:bg-white/5 hover:text-[#E5C158]"
           >
-            <div
-              aria-hidden="true"
-              className="
-                flex h-10 w-10 items-center justify-center rounded-full
-                bg-[#E5C158] font-bold text-black
-              "
+            <Database className="h-3.5 w-3.5" />
+            Backup
+          </button>
+
+          {canReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex items-center gap-1.5 border border-white/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#F5F5F5] transition-all hover:border-[#E5C158] hover:bg-white/5 hover:text-[#E5C158]"
             >
-              {userInitial}
-            </div>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Reset
+            </button>
+          )}
 
-            <div className="hidden text-left md:block">
-              <p className="max-w-40 truncate text-sm font-semibold text-white">
-                {userName}
-              </p>
-
-              <p className="max-w-40 truncate text-xs text-zinc-400">
-                {userRole}
-              </p>
-            </div>
-
-            <ChevronDown
-              size={18}
-              aria-hidden="true"
-              className="hidden text-zinc-400 sm:block"
-            />
+          <button
+            type="button"
+            onClick={() => void onLogout()}
+            className="flex items-center gap-1.5 border border-white/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#F5F5F5] transition-all hover:border-red-400 hover:bg-white/5 hover:text-red-400"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Logout
           </button>
         </div>
       </div>
