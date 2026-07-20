@@ -23,7 +23,7 @@ type NavigationItem = {
 
 type TradexaSidebarProps = {
   activePage?: string;
-  onNavigate?: (page: string) => void;
+  onPageChange?: (page: string) => void;  // ← This is the key prop
 };
 
 const navigationItems: NavigationItem[] = [
@@ -39,7 +39,7 @@ const navigationItems: NavigationItem[] = [
 
 export default function TradexaSidebar({
   activePage = "journal",
-  onNavigate,
+  onPageChange,  // ← Receive the prop
 }: TradexaSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -69,7 +69,7 @@ export default function TradexaSidebar({
             <button
               key={item.id}
               type="button"
-              onClick={() => onNavigate?.(item.id)}
+              onClick={() => onPageChange?.(item.id)}  // ← Call the callback
               title={collapsed ? item.label : undefined}
               className={`
                 flex w-full items-center rounded-xl py-3

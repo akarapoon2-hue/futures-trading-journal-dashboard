@@ -7,21 +7,12 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import Login from './components/auth/Login';
 import {
-  RefreshCw,
-  TrendingUp,
   Download,
   FileText,
   Settings,
   UploadCloud,
   Check,
   X,
-  LogOut,
-  Database,
-  Wifi,
-  Clock,
-  User,
-  Coins,
-  Activity
 } from 'lucide-react';
 import DashboardSettings from './components/DashboardSettings';
 import FirstAccountSetup from './components/accounts/FirstAccountSetup';
@@ -34,12 +25,13 @@ import CalendarPage from './pages/Calendar/CalendarPage';
 import ReportsPage from './pages/Reports/ReportsPage';
 import SettingsPage from './pages/Settings/SettingsPage';
 
-// ✅ Import JournalContent
+// ✅ Import Feature Components
 import JournalContent from './features/journal/JournalContent';
+import DashboardOverview from './features/dashboard/DashboardOverview';
 
 // ✅ Import Logo & Sidebar
-import tradexaLogo from "./assets/logo/logo.svg";
 import TradexaSidebar from "./components/layout/TradexaSidebar";
+import DashboardHeader from './components/layout/DashboardHeader';
 
 // ✅ Import Custom Hook (named export)
 import { useTradingDashboard } from './hooks/useTradingDashboard';
@@ -147,7 +139,10 @@ export default function App() {
     <div className="min-h-screen bg-[#090909] text-white">
       <div className="flex min-h-screen">
         
-        <TradexaSidebar activePage={activePage} />
+        <TradexaSidebar
+          activePage={activePage}
+          onPageChange={setActivePage}
+        />
 
         <div className="min-w-0 flex-1 flex flex-col relative">
           
@@ -157,106 +152,17 @@ export default function App() {
             </div>
           </div>
 
-          {/* Header */}
-          <header className="bg-[#0A0A0A] border-b border-white/10 sticky top-0 z-40 backdrop-blur-md">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              
-              <div className="flex items-center">
-                <img src={tradexaLogo} alt="TRADEXA" className="h-16 w-auto" />
-              </div>
-
-              {accountLoading ? (
-                <div className="flex items-center gap-2 bg-[#121212] border border-white/10 px-6 py-3">
-                  <div className="w-4 h-4 border-2 border-[#E5C158] border-t-transparent rounded-full animate-spin" />
-                  <span className="text-[10px] font-mono text-slate-400">Loading...</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-6 flex-wrap bg-[#121212] border border-white/10 px-6 py-3 rounded-none">
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <Wifi className="w-4 h-4 text-[#10b981]" />
-                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#10b981] rounded-full animate-pulse" />
-                    </div>
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#10b981]">Live</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <User className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-xs font-mono text-[#F5F5F5]">{accountInfo?.name || 'No Account'}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Coins className="w-3.5 h-3.5 text-[#E5C158]" />
-                    <span className="text-xs font-mono text-[#E5C158]">${accountInfo?.currentBalance?.toLocaleString() || '0'}</span>
-                  </div>
-
-                  <div className={`flex items-center gap-2 ${(accountInfo?.totalPnL || 0) >= 0 ? 'text-[#10b981]' : 'text-red-400'}`}>
-                    <TrendingUp className="w-3.5 h-3.5" />
-                    <span className="text-xs font-mono">
-                      {(accountInfo?.totalPnL || 0) >= 0 ? '+' : ''}{accountInfo?.totalPnL?.toLocaleString() || '0'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Activity className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-xs font-mono text-slate-400">{accountInfo?.tradeCount || 0} trades</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 border-l border-white/10 pl-4">
-                    <Clock className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="text-[10px] font-mono text-slate-500">{accountInfo?.lastSync || '--:--:--'}</span>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2 px-3 py-1.5 border border-white/10 rounded-none">
-                  <div className="w-6 h-6 rounded-full bg-[#E5C158] flex items-center justify-center text-black font-bold text-xs">
-                    {session.user.email?.charAt(0).toUpperCase() || 'U'}
-                  </div>
-                  <span className="text-xs font-mono text-slate-400 truncate max-w-[100px]">
-                    {session.user.email}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowAccountSettings(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border border-white/10 hover:border-[#E5C158] transition-all"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  <span>Settings</span>
-                </button>
-
-                <button
-                  onClick={() => setShowConfigPanel(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border border-white/10 hover:border-[#E5C158] transition-all"
-                >
-                  <Database className="h-3.5 w-3.5" />
-                  <span>Backup</span>
-                </button>
-
-                {selectedTemplateId !== 'custom' && (
-                  <button
-                    onClick={handleResetToCurrentTemplate}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-[#E5C158] text-xs font-bold uppercase tracking-wider rounded-none border border-white/10 hover:border-[#E5C158] transition-all"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Reset</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => supabase.auth.signOut()}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-transparent hover:bg-white/5 text-[#F5F5F5] hover:text-red-400 text-xs font-bold uppercase tracking-wider rounded-none border border-white/10 hover:border-red-400 transition-all"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span>Logout</span>
-                </button>
-              </div>
-            </div>
-          </header>
+          {/* Dashboard Header */}
+          <DashboardHeader
+            email={session.user.email ?? ''}
+            accountInfo={accountInfo}
+            accountLoading={accountLoading}
+            canReset={selectedTemplateId !== 'custom'}
+            onOpenSettings={() => setShowAccountSettings(true)}
+            onOpenBackup={() => setShowConfigPanel(true)}
+            onReset={handleResetToCurrentTemplate}
+            onLogout={() => supabase.auth.signOut()}
+          />
 
           {/* Main Content */}
           <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 w-full">
@@ -292,10 +198,11 @@ export default function App() {
 
                 {activePage === 'dashboard' && (
                   <DashboardPage>
-                    <div className="text-center py-20">
-                      <p className="text-sm font-black uppercase tracking-wider text-[#F5F5F5]">Dashboard Page</p>
-                      <p className="text-xs text-slate-400 mt-2">Coming soon...</p>
-                    </div>
+                    <DashboardOverview
+                      accountInfo={accountInfo}
+                      accountConfig={accountConfig}
+                      data={data}
+                    />
                   </DashboardPage>
                 )}
 
